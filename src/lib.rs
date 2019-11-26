@@ -14,25 +14,36 @@ use embedded_hal as hal;
 
 use crate::hal::digital::v2::OutputPin;
 use crate::hal::timer::{CountDown, Periodic};
+use core::borrow::BorrowMut;
+use core::marker::PhantomData;
 use smart_leds_trait::{SmartLedsWrite, RGB8};
 
 use nb;
 use nb::block;
 
-pub struct Ws2812<'a, TIMER, PIN> {
+pub struct Ws2812<TIMER, INNER_TIMER, PIN, INNER_PIN> {
     timer: TIMER,
-    pin: &'a mut PIN,
+    pin: PIN,
+    _timer: PhantomData<INNER_TIMER>,
+    _pin: PhantomData<INNER_PIN>,
 }
 
-impl<'a, TIMER, PIN> Ws2812<'a, TIMER, PIN>
+impl<TIMER, INNER_TIMER, PIN, INNER_PIN> Ws2812<TIMER, INNER_TIMER, PIN, INNER_PIN>
 where
-    TIMER: CountDown + Periodic,
-    PIN: OutputPin,
+    TIMER: BorrowMut<INNER_TIMER>,
+    INNER_TIMER: CountDown + Periodic,
+    PIN: BorrowMut<INNER_PIN>,
+    INNER_PIN: OutputPin,
 {
     /// The timer has to already run at with a frequency of 3 MHz
-    pub fn new(timer: TIMER, pin: &'a mut PIN) -> Ws2812<'a, TIMER, PIN> {
-        pin.set_low().ok();
-        Self { timer, pin }
+    pub fn new(timer: TIMER, mut pin: PIN) -> Self {
+        pin.borrow_mut().set_low().ok();
+        Self {
+            timer,
+            pin,
+            _timer: PhantomData,
+            _pin: PhantomData,
+        }
     }
 
     /// Write a single color for ws2812 devices
@@ -40,17 +51,17 @@ where
     fn write_byte(&mut self, mut data: u8) {
         for _ in 0..8 {
             if (data & 0x80) != 0 {
-                block!(self.timer.wait()).ok();
-                self.pin.set_high().ok();
-                block!(self.timer.wait()).ok();
-                block!(self.timer.wait()).ok();
-                self.pin.set_low().ok();
+                block!(self.timer.borrow_mut().wait()).ok();
+                self.pin.borrow_mut().set_high().ok();
+                block!(self.timer.borrow_mut().wait()).ok();
+                block!(self.timer.borrow_mut().wait()).ok();
+                self.pin.borrow_mut().set_low().ok();
             } else {
-                block!(self.timer.wait()).ok();
-                self.pin.set_high().ok();
-                self.pin.set_low().ok();
-                block!(self.timer.wait()).ok();
-                block!(self.timer.wait()).ok();
+                block!(self.timer.borrow_mut().wait()).ok();
+                self.pin.borrow_mut().set_high().ok();
+                self.pin.borrow_mut().set_low().ok();
+                block!(self.timer.borrow_mut().wait()).ok();
+                block!(self.timer.borrow_mut().wait()).ok();
             }
             data <<= 1;
         }
@@ -61,27 +72,30 @@ where
     fn write_byte(&mut self, mut data: u8) {
         for _ in 0..8 {
             if (data & 0x80) != 0 {
-                block!(self.timer.wait()).ok();
-                self.pin.set_high().ok();
-                block!(self.timer.wait()).ok();
-                block!(self.timer.wait()).ok();
-                self.pin.set_low().ok();
+                block!(self.timer.borrow_mut().wait()).ok();
+                self.pin.borrow_mut().set_high().ok();
+                block!(self.timer.borrow_mut().wait()).ok();
+                block!(self.timer.borrow_mut().wait()).ok();
+                self.pin.borrow_mut().set_low().ok();
             } else {
-                block!(self.timer.wait()).ok();
-                self.pin.set_high().ok();
-                block!(self.timer.wait()).ok();
-                self.pin.set_low().ok();
-                block!(self.timer.wait()).ok();
+                block!(self.timer.borrow_mut().wait()).ok();
+                self.pin.borrow_mut().set_high().ok();
+                block!(self.timer.borrow_mut().wait()).ok();
+                self.pin.borrow_mut().set_low().ok();
+                block!(self.timer.borrow_mut().wait()).ok();
             }
             data <<= 1;
         }
     }
 }
 
-impl<TIMER, PIN> SmartLedsWrite for Ws2812<'_, TIMER, PIN>
+impl<TIMER, INNER_TIMER, PIN, INNER_PIN> SmartLedsWrite
+    for Ws2812<TIMER, INNER_TIMER, PIN, INNER_PIN>
 where
-    TIMER: CountDown + Periodic,
-    PIN: OutputPin,
+    TIMER: BorrowMut<INNER_TIMER>,
+    INNER_TIMER: CountDown + Periodic,
+    PIN: BorrowMut<INNER_PIN>,
+    INNER_PIN: OutputPin,
 {
     type Error = ();
     type Color = RGB8;
@@ -99,7 +113,7 @@ where
         }
         // Get a timeout period of 300 ns
         for _ in 0..900 {
-            block!(self.timer.wait()).ok();
+            block!(self.timer.borrow_mut().wait()).ok();
         }
         Ok(())
     }
